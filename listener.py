@@ -1,36 +1,37 @@
-import asyncio
-
+# listener.py
 import speech_recognition as sr
-from groq import AsyncGroq
 from dotenv import load_dotenv
+from groq import Groq
 import os
 
 load_dotenv()
 
-key = os.getenv("API_KEY")
+client = Groq(api_key=os.getenv("API_KEY"))  # env já carregado pelo brain
 
-client = AsyncGroq(api_key=key)
+_recognizer = sr.Recognizer()
+_recognizer.energy_threshold = 1000
+_recognizer.dynamic_energy_threshold = False
+_mic = sr.Microphone()
 
-async def listener():
-    recognizer  = sr.Recognizer()
+with _mic as source:
+    _recognizer.adjust_for_ambient_noise(source, duration=0.5)
 
+def Transcrever(audio: sr.AudioData) -> str:
+    return client.audio.transcriptions.create(
+        model="whisper-large-v3-turbo",  # 4x mais rápido
+        file=("audio.wav", audio.get_wav_data()),
+        language="pt"
+    ).text
+
+def Listener() -> sr.AudioData | None:
     try:
-        with sr.Microphone() as source:
-            recognizer.adjust_for_ambient_noise(source, duration=2)
-
-            audio = recognizer.listen(source, 2, 10)
-
-        with open("audio.wav", 'wb') as f:
-            f.write(audio.get_wav_data())
-
-        with open("audio.wav", 'rb') as audio_file:
-            texto = client.audio.transcriptions.create(
-                file=audio_file,
-                model="whisper-large-v3",
-                language="pt-br"
-            )
-        print(texto)
+        with _mic as source:
+            print("Pode falar...")
+            audio = _recognizer.listen(source, timeout=5, phrase_time_limit=10)
+        return audio
+    except sr.WaitTimeoutError:
+        print("Não ouvi nada.")
+        return None
     except Exception as e:
-        print(e)
-
-asyncio.run(listener())
+        print(f"Erro no Listener: {e}")
+        return None

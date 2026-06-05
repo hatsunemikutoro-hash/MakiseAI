@@ -1,0 +1,7 @@
+speechrecognition
+groq
+python-dotenv
+numpy
+pyaudio
+openwakeword
+pynput
