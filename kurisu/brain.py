@@ -24,12 +24,13 @@ async def loop_audio():
         while True:
             text = await loop.run_in_executor(executor, input, "> ")
             if text and text.strip():
-                print( await falar(text))
+                response = await falar(text)
+                print(response)
 
 async def main():
     listener = keyboard.Listener(on_press=on_press)
     listener.start()
-    print("MakiseAI READY — space to toggle")
+    print("Amadeus kurisu READY — space to toggle")
     await loop_audio()
 
 asyncio.run(main())
