@@ -1,7 +1,7 @@
 from pynput import keyboard
 from kurisu.brain_func.state import state
 import re
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 ferramentas = [
     {
@@ -25,15 +25,16 @@ ferramentas = [
 
 def search(termo: str) -> str:
     try:
-        with DDGS as ddgs:
+        with DDGS() as ddgs:
             resultados = [r for r in ddgs.text(termo, max_results=3)]
 
             contexto = ""
             for i, r in enumerate(resultados, 1):
                 contexto += f"Resultado {i}: {r['title']}\nResumo: {r['body']}\n\n"
-                return contexto
+
+            return contexto
     except Exception as e:
-        return "erro ao acessar o steins gate."
+        return f"erro ao acessar o steins gate. ERRO {e}"
 
 def on_press(key):
     if state.mode == "v":

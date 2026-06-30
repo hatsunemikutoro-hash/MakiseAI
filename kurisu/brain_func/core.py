@@ -74,7 +74,44 @@ async def falar(content: str):
         tools=ferramentas
     )
 
-    raw_resposta = chat_completion['message']['content']
+    mensagem_ia = chat_completion['message']
+
+    if hasattr(mensagem_ia, 'tool_calls') and mensagem_ia.tool_calls:
+        print("\n[ALERT] A assistente Kurisu acionou o Tool Calling!")
+
+        # Convertendo o objeto Message em um dict puro do Python para não quebrar o save(memory)
+        if hasattr(mensagem_ia, 'model_dump'):
+            memory.append(mensagem_ia.model_dump())
+        else:
+            memory.append(dict(mensagem_ia))
+
+        for call in mensagem_ia.tool_calls:
+            nome_funcao = call['function']['name']
+            argumentos = call['function']['arguments']
+
+            print(f"-> Executando gadget: {nome_funcao}")
+            print(f"-> Parâmetros decodificados: {argumentos}")
+
+            if nome_funcao == "search":
+                resultado_busca = search(argumentos['termo'])
+
+                memory.append({
+                    "role": "tool",
+                    "name": nome_funcao,
+                    "content": resultado_busca
+                })
+
+        segunda_completion = await AsyncClient().chat(
+            messages=[{"role": "system", "content": system_content}, *memory],
+            model=model,
+            options={"temperature": 0.4, "top_p": 0.9, "repeat_penalty": 1.15}
+        )
+
+        raw_resposta = segunda_completion['message']['content']
+
+    else:
+        raw_resposta = mensagem_ia['content'] if 'content' in mensagem_ia else mensagem_ia.content
+    # =========================================================================
 
     if "</think>" in raw_resposta:
         resposta_limpa = raw_resposta.split("</think>")[-1].strip()
