@@ -1,15 +1,21 @@
 import time
 import asyncio
+import pyperclip
 from textual.app import App
 from textual.widgets import Header, Footer, Static, Input
 from textual.containers import VerticalScroll
 
-# Importando a função geradora
+
 from kurisu.brain_func.core import falar, memory
 from kurisu.memory.memory_manager import wipe
 
 
 class AmadeusKurisu(App):
+    BINDINGS = [
+        ("ctrl+y", "copy_last", "Copiar Última Resposta"),
+        ("ctrl+q", "quit", "Sair"),
+    ]
+    ultima_resposta_amadeus = ""
     CSS = """
     Screen { background: #0a0a1a; }
 
@@ -42,7 +48,6 @@ class AmadeusKurisu(App):
 
     def compose(self):
         yield Header()
-        # Usamos o VerticalScroll como um "container vazio" que vai receber as mensagens
         with VerticalScroll(id="chat_container"):
             pass
         yield Static(id="status_bar")
@@ -82,7 +87,6 @@ class AmadeusKurisu(App):
                       :--+#@@@#@@%*@@#=--:                
                            ::::::::::                     [/]"""
 
-        # Injetamos o banner e a mensagem inicial de forma independente
         await container.mount(Static(banner_text, markup=True))
         await container.mount(
             Static("[bold #ff7700]>>> Sistema Amadeus online...[/bold #ff7700]", markup=True, classes="msg_info"))
@@ -94,6 +98,13 @@ class AmadeusKurisu(App):
             status_widget.update(f"[bold #ff7700]{spinner[i % 4]} Kurisu is Thinking...")
             i += 1
             await asyncio.sleep(0.1)
+
+    def action_copy_last(self):
+        if self.ultima_resposta_amadeus:
+            pyperclip.copy(self.ultima_resposta_amadeus.strip())
+            self.notify("Texto copiado")
+        else:
+            self.notify("Ainda não há nada para copiar!")
 
     async def processar_comando(self, comando: str):
         partes = comando.split()
@@ -119,12 +130,10 @@ class AmadeusKurisu(App):
             await self.processar_comando(user_text)
             return
 
-        # 1. Cria e monta a mensagem do usuário
         user_msg = Static(f"[bold #00ff94]user@makise-lab:~$:[/bold #00ff94] {user_text}", classes="msg_user")
         await container.mount(user_msg)
         container.scroll_end(animate=False)
 
-        # 2. Cria o componente isolado para a resposta da Amadeus
         prefix = "[bold #ff0000]Amadeus:[/bold #ff0000] "
         amadeus_msg = Static(prefix, classes="msg_amadeus")
         await container.mount(amadeus_msg)
@@ -134,20 +143,21 @@ class AmadeusKurisu(App):
 
         try:
             current_response = prefix
+            raw_text = ""
 
-            # 3. Stream: Atualizamos APENAS a mensagem da Amadeus, não a tela toda!
             async for chunk in falar(user_text):
                 if not spinner_task.done():
                     spinner_task.cancel()
                     status.update("")
 
                 current_response += chunk
+                raw_text += chunk
                 amadeus_msg.update(current_response)
 
-                # Mantém a tela rolando para baixo suavemente
                 container.scroll_end(animate=False)
 
-            # 4. Finaliza com a latência em um bloco separado
+            self.ultima_resposta_amadeus = raw_text
+
             latency = time.perf_counter() - start_time
             await container.mount(
                 Static(f"[dim #555555]Response latency: {latency:.3f}s[/dim #555555]", classes="msg_info"))

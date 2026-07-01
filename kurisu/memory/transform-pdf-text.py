@@ -24,3 +24,4 @@ def processar_pdf(caminho_pdf):
     )
     print(f"Dados do {caminho_pdf} assimilados com sucesso.")
 
+processar_pdf("S:\\Vscode\\MakiseAI\\kurisu\\memory\\books\\ManifestoComunista.pdf")

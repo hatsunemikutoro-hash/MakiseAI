@@ -50,8 +50,4 @@ def filtrar_resposta_kurisu(texto_da_ia):
     texto_limpo = re.sub(r'<think>.*?</think>', '', texto_da_ia, flags=re.DOTALL)
     texto_limpo = re.sub(r'<thought>.*?</thought>', '', texto_limpo, flags=re.DOTALL)
 
-    texto_limpo = texto_limpo.replace('[Kurisu]:', '')
-    texto_limpo = texto_limpo.replace('*Kurisu*:', '')
-    texto_limpo = texto_limpo.replace('Kurisu:', '')
-
     return texto_limpo.strip()
