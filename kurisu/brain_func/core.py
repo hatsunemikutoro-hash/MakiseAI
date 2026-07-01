@@ -8,6 +8,7 @@ from kurisu.memory.memory_manager import save, load_memory, prompt_initial, save
 import os
 import json
 
+from kurisu.memory.rag_engine import consultar_data
 from kurisu.utils import ferramentas, search
 
 load_dotenv()
@@ -43,6 +44,7 @@ async def extract_fact(content):
         print(">>> erro no json, llm retornou:", text)
 
 
+#  esse falar ja foi um dia um codigo de 5 linhas
 async def falar(content: str):
     agora_hora = datetime.now().strftime("%H:%M")
     agora_completo = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -53,10 +55,12 @@ async def falar(content: str):
         memory[:] = memory[-MEMORY_MAX:]
 
     facts = await buscar_fatos_relevantes(content)
+    rag_data = consultar_data(content)
 
     system_content = (
         f"{prompt_initial}\n\n"
         f"Pesquisa sobre o usuario (conversas anteriores):\n{facts}\n\n"
+        f"Pesquisa no banco de dados (RAG): \n{rag_data}\n\n"
         f"Linha do tempo atual de referência: {agora_completo} (Não cite isso do nada)."
     )
 
@@ -111,8 +115,8 @@ async def falar(content: str):
 
     else:
         raw_resposta = mensagem_ia['content'] if 'content' in mensagem_ia else mensagem_ia.content
-    # =========================================================================
 
+    # sinceramente nem sei se precisa mais disso mas ta aqui
     if "</think>" in raw_resposta:
         resposta_limpa = raw_resposta.split("</think>")[-1].strip()
     else:

@@ -6,8 +6,6 @@ from kurisu.brain_func.state import state
 
 executor = ThreadPoolExecutor(max_workers=2)  # 1 pro Listener, 1 pro Transcrever
 
-
-
 async def loop_audio():
     state.mode = input("voice(v) / chat(c): ")
     loop = asyncio.get_running_loop()
