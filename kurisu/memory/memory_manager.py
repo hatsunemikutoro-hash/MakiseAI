@@ -10,7 +10,6 @@ with open(os.path.join(caminho_memories, character_prompt), 'r', encoding='utf-8
     prompt_initial = file.read()
 
 vies = [{"role": "system", "content": prompt_initial}]
-print(caminho_memories)
 
 def save_facts(new_facts):
     caminho = os.path.join(caminho_memories, "facts.json")
@@ -62,4 +61,8 @@ def load_memory():
 def save(data):
     with open(os.path.join(caminho_memories, "memories.json"), 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False)
+
+def wipe():
+    with open(os.path.join(caminho_memories, "memories.json"), 'w', encoding='utf-8') as f:
+        json.dump([], f, ensure_ascii=False)
 

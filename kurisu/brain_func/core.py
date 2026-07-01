@@ -45,6 +45,7 @@ async def extract_fact(content):
 
 
 #  esse falar ja foi um dia um codigo de 5 linhas
+
 async def falar(content: str):
     agora_hora = datetime.now().strftime("%H:%M")
     agora_completo = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -54,8 +55,10 @@ async def falar(content: str):
     if len(memory) > MEMORY_MAX:
         memory[:] = memory[-MEMORY_MAX:]
 
-    facts = await buscar_fatos_relevantes(content)
-    rag_data = consultar_data(content)
+    facts, rag_data = await asyncio.gather(
+        buscar_fatos_relevantes(content),
+        consultar_data(content)
+    )
 
     system_content = (
         f"{prompt_initial}\n\n"
@@ -64,68 +67,87 @@ async def falar(content: str):
         f"Linha do tempo atual de referência: {agora_completo} (Não cite isso do nada)."
     )
 
-    chat_completion = await AsyncClient().chat(
-        messages=[
-            {"role": "system", "content": system_content},
-            *memory
-        ],
+    stream = await AsyncClient().chat(
+        messages=[{"role": "system", "content": system_content}, *memory],
         model=model,
-        options={
-            "temperature": 0.4,
-            "top_p": 0.9,
-            "repeat_penalty": 1.15
-        },
-        tools=ferramentas
+        stream=True,
+        tools=ferramentas,
+        options={"temperature": 0.4}
     )
 
-    mensagem_ia = chat_completion['message']
+    full_response = ""
+    tool_calls_buffer = []
 
-    if hasattr(mensagem_ia, 'tool_calls') and mensagem_ia.tool_calls:
-        print("\n[ALERT] A assistente Kurisu acionou o Tool Calling!")
+    async for chunk in stream:
+        msg = chunk.get('message', {})
 
-        # Convertendo o objeto Message em um dict puro do Python para não quebrar o save(memory)
-        if hasattr(mensagem_ia, 'model_dump'):
-            memory.append(mensagem_ia.model_dump())
-        else:
-            memory.append(dict(mensagem_ia))
+        if 'tool_calls' in msg and msg['tool_calls']:
+            tool_calls_buffer.extend(msg['tool_calls'])
 
-        for call in mensagem_ia.tool_calls:
-            nome_funcao = call['function']['name']
-            argumentos = call['function']['arguments']
+        parte = msg.get('content', '')
+        if parte:
+            full_response += parte
+            yield parte
 
-            print(f"-> Executando gadget: {nome_funcao}")
-            print(f"-> Parâmetros decodificados: {argumentos}")
+    if tool_calls_buffer:
+        safe_tools = []
+        for t in tool_calls_buffer:
+            f_name = t.function.name if hasattr(t, 'function') else t['function']['name']
+            f_args = t.function.arguments if hasattr(t, 'function') else t['function']['arguments']
 
-            if nome_funcao == "search":
-                resultado_busca = search(argumentos['termo'])
+
+            if isinstance(f_args, str):
+                try:
+                    f_args = json.loads(f_args)
+                except:
+                    pass  # Se falhar, mantém como string e torce pro melhor
+
+            safe_tools.append({
+                "type": "function",
+                "function": {
+                    "name": f_name,
+                    "arguments": f_args
+                }
+            })
+
+        memory.append({
+            "role": "assistant",
+            "content": full_response,
+            "tool_calls": safe_tools
+        })
+
+        for tool in safe_tools:
+            nome_func = tool['function']['name']
+            if nome_func == 'search':
+                args = tool['function']['arguments']
+                termo = args.get('termo', '')
+
+                yield f"\n[dim #00ffff]* Acessando a rede para buscar: '{termo}'... *[/dim #00ffff]\n"
+
+                # Executa a pesquisa
+                resultado = search(termo)
 
                 memory.append({
                     "role": "tool",
-                    "name": nome_funcao,
-                    "content": resultado_busca
+                    "content": resultado,
+                    "name": nome_func
                 })
 
-        segunda_completion = await AsyncClient().chat(
+        stream_final = await AsyncClient().chat(
             messages=[{"role": "system", "content": system_content}, *memory],
             model=model,
-            options={"temperature": 0.4, "top_p": 0.9, "repeat_penalty": 1.15}
+            stream=True,
+            options={"temperature": 0.4}
         )
 
-        raw_resposta = segunda_completion['message']['content']
+        final_text = ""
+        async for chunk in stream_final:
+            parte = chunk['message'].get('content', '')
+            if parte:
+                final_text += parte
+                yield parte
 
-    else:
-        raw_resposta = mensagem_ia['content'] if 'content' in mensagem_ia else mensagem_ia.content
+        full_response = final_text
 
-    # sinceramente nem sei se precisa mais disso mas ta aqui
-    if "</think>" in raw_resposta:
-        resposta_limpa = raw_resposta.split("</think>")[-1].strip()
-    else:
-        resposta_limpa = raw_resposta.strip()
-
-    memory.append({"role": "assistant", "content": resposta_limpa})
+    memory.append({"role": "assistant", "content": full_response})
     save(memory)
-
-    if "!save_mem" in content.strip().lower():
-        await extract_fact(memory)
-
-    return f"{resposta_limpa}"
