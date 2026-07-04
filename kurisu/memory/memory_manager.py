@@ -2,14 +2,43 @@ import json
 import os
 import aiofiles
 
+# Amadeus Kurisu // Amadeus Valkyrie // Amadeus Skuld
 caminho_memories = os.path.dirname(os.path.abspath(__file__))
 
-character_prompt = "prompt_initial_chaos"
+vies = [{"role": "system", "content": ""}]
+current_persona = "amadeus_kurisu"
+character_prompt = "prompt_initial_kurisu"
 
-with open(os.path.join(caminho_memories, character_prompt), 'r', encoding='utf-8') as file:
-    prompt_initial = file.read()
+# esquizofrenia system
+def mudar_persona(nome_persona):
+    """Muda a persona ativa e recarrega dinamicamente o arquivo TXT correspondente"""
+    global current_persona
+    global  character_prompt
+    
+    if nome_persona in ["kurisu", "amadeus_kurisu"]:
+        character_prompt = "prompt_initial_kurisu"
+        current_persona = "amadeus_kurisu"
+    elif nome_persona in ["valkyrie", "amadeus_valkyrie"]:
+        character_prompt = "prompt_initial_valkyrie"
+        current_persona = "amadeus_valkyrie"
+    elif nome_persona in ["skuld", "amadeus_skuld"]:
+        character_prompt = "prompt_initial_skuld"
+        current_persona = "amadeus_skuld"
+    else:
+        character_prompt = "prompt_initial_kurisu"
+        current_persona = "amadeus_kurisu"
 
-vies = [{"role": "system", "content": prompt_initial}]
+    caminho_file = os.path.join(caminho_memories, character_prompt)
+    
+    try:
+        with open(caminho_file, 'r', encoding='utf-8') as file:
+            prompt_conteudo = file.read()
+            vies[0]["content"] = prompt_conteudo
+        print(f"Prompt carregado de: {character_prompt}")
+    except FileNotFoundError:
+        print(f"Arquivo de prompt '{character_prompt}' não foi encontrado em {caminho_memories}")
+        vies[0]["content"] = f"O sistema deu erro por favor avise ao usuario que o sistema deu erro."
+
 
 def save_facts(new_facts):
     caminho = os.path.join(caminho_memories, "facts.json")

@@ -3,25 +3,36 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
+DB_DIR = "S:/Vscode/MakiseAI/kurisu/memory/amadeus_cortex"
 
-def processar_pdf(caminho_pdf):
-    # 1. Carrega o PDF
+def aprender_livro(caminho_pdf, persona="kurisu"):
+    """
+    Carrega um PDF e o assimila na coleção correta da Amadeus.
+    Se as pastas ou coleções não existirem, o Chroma as criará automaticamente
+    """
+    nome_da_colecao = f"amadeus_{persona}"
+    
+    print(f"[{persona.upper()}] Iniciando leitura do arquivo de dados: {caminho_pdf}...")
+
     loader = PyPDFLoader(caminho_pdf)
     documentos = loader.load()
 
-    # 2. Fragmenta com precisão (o 'overlap' garante que não se perca contexto na quebra)
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
     chunks = text_splitter.split_documents(documentos)
 
-    # 3. Embedding (transforma texto em vetores numéricos)
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
-    # 4. Salva no banco (o cérebro)
     Chroma.from_documents(
         documents=chunks,
         embedding=embeddings,
-        persist_directory="./amadeus_cortex"
+        persist_directory=DB_DIR,
+        collection_name=nome_da_colecao
     )
-    print(f"Dados do {caminho_pdf} assimilados com sucesso.")
+    
+    print(f"Sucess [{persona.upper()}].")
 
-processar_pdf("S:\\Vscode\\MakiseAI\\kurisu\\memory\\books\\ManifestoComunista.pdf")
+
+aprender_livro(
+    caminho_pdf="S:\\Vscode\\MakiseAI\\kurisu\\memory\\books\\Skuld\\manualdeprimeirossocorros.pdf",
+    persona="skuld"
+)

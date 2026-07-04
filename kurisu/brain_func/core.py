@@ -3,17 +3,16 @@ from ollama import AsyncClient
 from groq import AsyncGroq
 from dotenv import load_dotenv
 from datetime import datetime
-from kurisu.memory.memory_manager import save, load_memory, prompt_initial, save_facts, load_facts, \
-    buscar_fatos_relevantes
 import os
 import json
 
-from kurisu.memory.rag_engine import consultar_data
-from kurisu.utils import ferramentas, search
+from kurisu.memory import memory_manager
+from kurisu.memory import rag_engine
+from kurisu.utils import ferramentas, search, think
 
 load_dotenv()
 
-memory = load_memory()
+memory = memory_manager.load_memory()
 model = "qwen2.5:7b"
 MEMORY_MAX = 8
 
@@ -34,120 +33,172 @@ async def extract_fact(content):
     )
 
     text = response['message']['content']
-
     text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
     try:
         new_facts = json.loads(text)["fatos"]
-        save_facts(new_facts)
+        memory_manager.save_facts(new_facts)
     except json.JSONDecodeError:
         print(">>> erro no json, llm retornou:", text)
 
+async def stream_response(messages):
+    stream = await AsyncClient().chat(
+        model=model,
+        messages=messages,
+        stream=True,
+        tools=ferramentas,
+        options={"temperature": 0.4},
+    )
 
-#  esse falar ja foi um dia um codigo de 5 linhas
+    texto = ""
+    tool_calls = []
+
+    async for chunk in stream:
+        msg = chunk.message
+
+        if msg.tool_calls:
+            tool_calls.extend(msg.tool_calls)
+
+        if msg.content:
+            texto += msg.content
+            yield ("text", msg.content)
+
+    yield ("done", {
+        "content": texto,
+        "tool_calls": tool_calls
+    })
 
 async def falar(content: str):
     agora_hora = datetime.now().strftime("%H:%M")
     agora_completo = datetime.now().strftime("%d/%m/%Y %H:%M")
 
-    memory.append({"role": "user", "content": f"[{agora_hora}] {content}"})
+    memory.append({
+        "role": "user",
+        "content": f"[{agora_hora}] {content}"
+    })
 
     if len(memory) > MEMORY_MAX:
         memory[:] = memory[-MEMORY_MAX:]
 
+    persona_ativa = memory_manager.current_persona.replace("amadeus_", "")
+
     facts, rag_data = await asyncio.gather(
-        buscar_fatos_relevantes(content),
-        consultar_data(content)
+        memory_manager.buscar_fatos_relevantes(content),
+        rag_engine.consultar_data(content, persona=persona_ativa)
     )
+
+    prompt_atual = memory_manager.vies[0]["content"]
 
     system_content = (
-        f"{prompt_initial}\n\n"
-        f"Pesquisa sobre o usuario (conversas anteriores):\n{facts}\n\n"
-        f"Pesquisa no banco de dados (RAG): \n{rag_data}\n\n"
-        f"Linha do tempo atual de referência: {agora_completo} (Não cite isso do nada)."
+        f"{prompt_atual}\n\n"
+        f"Pesquisa sobre o usuario:\n{facts}\n\n"
+        f"Pesquisa no banco de dados (RAG):\n{rag_data}\n\n"
+        f"Linha do tempo atual: {agora_completo} (Não cite isso do nada)."
     )
 
-    stream = await AsyncClient().chat(
-        messages=[{"role": "system", "content": system_content}, *memory],
-        model=model,
-        stream=True,
-        tools=ferramentas,
-        options={"temperature": 0.4}
-    )
+    messages = [
+        {"role": "system", "content": system_content},
+        *memory
+    ]
 
     full_response = ""
-    tool_calls_buffer = []
+    tool_calls = []
 
-    async for chunk in stream:
-        msg = chunk.get('message', {})
+    # ================= PRIMEIRA GERAÇÃO =================
 
-        if 'tool_calls' in msg and msg['tool_calls']:
-            tool_calls_buffer.extend(msg['tool_calls'])
+    async for tipo, data in stream_response(messages):
 
-        parte = msg.get('content', '')
-        if parte:
-            full_response += parte
-            yield parte
+        if tipo == "text":
+            full_response += data
+            yield data
 
-    if tool_calls_buffer:
-        safe_tools = []
-        for t in tool_calls_buffer:
-            f_name = t.function.name if hasattr(t, 'function') else t['function']['name']
-            f_args = t.function.arguments if hasattr(t, 'function') else t['function']['arguments']
+        else:
+            tool_calls = data["tool_calls"]
 
-
-            if isinstance(f_args, str):
-                try:
-                    f_args = json.loads(f_args)
-                except:
-                    pass  # Se falhar, mantém como string e torce pro melhor
-
-            safe_tools.append({
-                "type": "function",
-                "function": {
-                    "name": f_name,
-                    "arguments": f_args
-                }
-            })
-
+    # Se não chamou nenhuma tool acabou.
+    if not tool_calls:
         memory.append({
             "role": "assistant",
-            "content": full_response,
-            "tool_calls": safe_tools
+            "content": full_response
+        })
+        memory_manager.save(memory)
+        return
+
+    # Salva a resposta parcial + tool calls
+    memory.append({
+        "role": "assistant",
+        "content": full_response,
+        "tool_calls": [
+            {
+                "type": "function",
+                "function": {
+                    "name": t.function.name,
+                    "arguments": t.function.arguments
+                }
+            }
+            for t in tool_calls
+        ]
+    })
+
+    # ================= EXECUTA TOOLS =================
+
+    for tool in tool_calls:
+
+        nome = tool.function.name
+        args = tool.function.arguments
+
+        if isinstance(args, str):
+            args = json.loads(args)
+
+        if nome == "search":
+
+            termo = args["termo"]
+
+            yield (
+                f"\n[dim #00ffff]"
+                f"* Pesquisando '{termo}'... *"
+                f"[/dim #00ffff]\n"
+            )
+
+            resultado = search(termo)
+
+        elif nome == "think":
+
+            yield (
+                "\n[dim #ffaa00]"
+                "* Analisando profundamente o problema... *"
+                "[/dim #ffaa00]\n"
+            )
+
+            resultado = await think(args["prompt"])
+
+        else:
+            continue
+
+        memory.append({
+            "role": "tool",
+            "name": nome,
+            "content": resultado
         })
 
-        for tool in safe_tools:
-            nome_func = tool['function']['name']
-            if nome_func == 'search':
-                args = tool['function']['arguments']
-                termo = args.get('termo', '')
+    # ================= SEGUNDA GERAÇÃO =================
 
-                yield f"\n[dim #00ffff]* Acessando a rede para buscar: '{termo}'... *[/dim #00ffff]\n"
+    full_response = ""
 
-                # Executa a pesquisa
-                resultado = search(termo)
+    messages = [
+        {"role": "system", "content": system_content},
+        *memory
+    ]
 
-                memory.append({
-                    "role": "tool",
-                    "content": resultado,
-                    "name": nome_func
-                })
+    async for tipo, data in stream_response(messages):
 
-        stream_final = await AsyncClient().chat(
-            messages=[{"role": "system", "content": system_content}, *memory],
-            model=model,
-            stream=True,
-            options={"temperature": 0.4}
-        )
+        if tipo == "text":
+            full_response += data
+            yield data
 
-        final_text = ""
-        async for chunk in stream_final:
-            parte = chunk['message'].get('content', '')
-            if parte:
-                final_text += parte
-                yield parte
+    memory.append({
+        "role": "assistant",
+        "content": full_response
+    })
 
-        full_response = final_text
-
-    memory.append({"role": "assistant", "content": full_response})
-    save(memory)
+    memory_manager.save(memory)
